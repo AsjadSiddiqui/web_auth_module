@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:html' as html;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 // import 'package:hive_flutter/hive_flutter.dart';
 import 'package:http/browser_client.dart';
 import 'package:http/http.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:image_picker_web/image_picker_web.dart';
 
 // late Box _box;
@@ -12,6 +15,7 @@ import 'package:image_picker_web/image_picker_web.dart';
 // const baseURL = 'https://cradle-of-humankind-server.herokuapp.com';
 const baseURL = 'http://localhost:1337';
 void main() async {
+  // File
   WidgetsFlutterBinding.ensureInitialized();
   // var box = await Hive.openBox('storage');
   // _box = box;
@@ -43,7 +47,9 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  Uint8List? selectedImage;
+  html.File? selectedImage;
+  Uint8List? selectedFile;
+
   final _client = Client();
   void login({
     required String email,
@@ -81,19 +87,25 @@ class _HomeState extends State<Home> {
   }
 
   void selectImage() async {
-    Uint8List? selectedFile = await ImagePickerWeb.getImageAsBytes();
-    if (selectedFile == null) return;
+    // Uint8List? selectedFile = await ImagePickerWeb.getImageAsBytes();
+    final imageFile = await ImagePickerWeb.getImageAsFile();
+    if (imageFile == null) return;
+    selectedFile = await imageFile.asBytes();
     setState(() {
-      selectedImage = selectedFile;
+      selectedImage = imageFile;
     });
   }
 
   Future<void> uploadImage() async {
     if (selectedImage == null) return;
+    // Uint8List? selectedFile = await selectedImage!.asBytes();
     final req = MultipartRequest(
       'POST',
       Uri.parse('$baseURL/api/v1/image/upload'),
     );
+
+    print(selectedImage!.name);
+    print(selectedImage!.type);
 
     req.fields.addAll({
       'description': 'Test decription ${DateTime.now().millisecondsSinceEpoch}',
@@ -102,8 +114,9 @@ class _HomeState extends State<Home> {
     req.files.add(
       MultipartFile.fromBytes(
         'image',
-        selectedImage!,
-        // filename: 'image-file-${DateTime.now().millisecondsSinceEpoch}',
+        selectedFile!,
+        contentType: MediaType('image', selectedImage!.type.split('/').last),
+        filename: 'image',
       ),
     );
     final res = await _client.send(
@@ -165,13 +178,13 @@ class _HomeState extends State<Home> {
                   ),
                 ],
               ),
-              if (selectedImage != null) ...[
+              if (selectedFile != null) ...[
                 const SizedBox(
                   height: 50,
                 ),
                 const Text('Selected Image:'),
                 Image.memory(
-                  selectedImage!,
+                  selectedFile!,
                   width: 400,
                 ),
               ],
@@ -180,5 +193,16 @@ class _HomeState extends State<Home> {
         ),
       ),
     );
+  }
+}
+
+extension FileModifier on html.File {
+  Future<Uint8List> asBytes() async {
+    final bytesFile = Completer<List<int>>();
+    final reader = html.FileReader();
+    reader.onLoad.listen(
+        (event) => bytesFile.complete(reader.result as FutureOr<List<int>>?));
+    reader.readAsArrayBuffer(this);
+    return Uint8List.fromList(await bytesFile.future);
   }
 }
